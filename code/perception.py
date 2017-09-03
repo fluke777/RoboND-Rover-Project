@@ -84,9 +84,31 @@ def perception_step(Rover):
     # TODO: 
     # NOTE: camera image is coming to you in Rover.img
     # 1) Define source and destination points for perspective transform
+    source = np.float32([[14, 140], [119, 97], [199, 96], [302, 144]])
+    destination = np.float32([[150, 140], [150, 135], [155, 135], [155, 140]])      
+
+    warped = perspect_transform(Rover.img, source, destination)
+    
     # 2) Apply perspective transform
     # 3) Apply color threshold to identify navigable terrain/obstacles/rock samples
     # 4) Update Rover.vision_image (this will be displayed on left side of screen)
+    # Rover.vision_image = warped
+    # Rover.vision_image[:,:,0] = np.zeros_like(warped[:,:,0])
+    # Rover.vision_image[:,:,1] = np.ones_like(warped[:,:,0])
+    # Rover.vision_image[:,:,2] = np.zeros_like(warped[:,:,0])
+    
+    img = np.zeros([160,320,3],dtype=np.uint8)
+
+    hsv = cv2.cvtColor(warped, cv2.COLOR_RGB2HSV)
+    lower_y = np.array([25,41,150])
+    upper_y = np.array([50,250,255])
+    mask = cv2.inRange(hsv, lower_y, upper_y)
+
+    
+    img[:,:,0] = mask
+    img[:,:,1] = color_thresh(warped, (100, 100, 0)) * 255
+    Rover.vision_image = img
+    
         # Example: Rover.vision_image[:,:,0] = obstacle color-thresholded binary image
         #          Rover.vision_image[:,:,1] = rock_sample color-thresholded binary image
         #          Rover.vision_image[:,:,2] = navigable terrain color-thresholded binary image
@@ -103,7 +125,6 @@ def perception_step(Rover):
         # Rover.nav_dists = rover_centric_pixel_distances
         # Rover.nav_angles = rover_centric_angles
     
- 
     
     
     return Rover
