@@ -13,7 +13,25 @@ def decision_step(Rover):
     # Check if we have vision data to make decisions with
     if Rover.nav_angles is not None:
         # Check for Rover.mode status
+
         if Rover.mode == 'forward': 
+
+            # check what is directly in front of us
+            # The idea is that we can speed up but if we did too much, rover had no chnce to react to obstacles
+            # So I tuned it a bit based on the distance to an obstacle
+            dead_ahead = Rover.nav_dists[np.vectorize(lambda t: t == 0, otypes =[np.bool])(Rover.nav_angles * 180/np.pi)]
+            # print(dead_ahead )
+            if len(dead_ahead[dead_ahead< 15]) == 0:
+                Rover.max_vel = 0.1
+            elif len(dead_ahead[dead_ahead > 100]) != 0:
+                # print("GO")
+                # print("GO")
+                # print("GO")
+                Rover.max_vel = 3
+            else:
+                # print("CARE")
+                Rover.max_vel = 1
+            
             # Check the extent of navigable terrain
             if len(Rover.nav_angles) >= Rover.stop_forward:  
                 # If mode is forward, navigable terrain looks good 
@@ -25,7 +43,8 @@ def decision_step(Rover):
                     Rover.throttle = 0
                 Rover.brake = 0
                 # Set steering to average angle clipped to the range +/- 15
-                Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi), -15, 15)
+                Rover.steer = np.clip(np.percentile(Rover.nav_angles * 180/np.pi, 85), -15, 15)
+                # Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi), -15, 15)
             # If there's a lack of navigable terrain pixels then go to 'stop' mode
             elif len(Rover.nav_angles) < Rover.stop_forward:
                     # Set mode to "stop" and hit the brakes!
@@ -34,6 +53,35 @@ def decision_step(Rover):
                     Rover.brake = Rover.brake_set
                     Rover.steer = 0
                     Rover.mode = 'stop'
+        # if we want to close to the sample
+        # It means that we see the sample and we expect to have clear path to it (sadly not alwyas true)
+        elif Rover.mode == 'closing_to_sample':
+            print("Getting closer")
+            if Rover.seeing_sample == True:
+                Rover.steer = Rover.sample_angle
+                # If we are going in direction of the sample
+                if Rover.sample_angle < 3 or Rover.sample_angle > -3:
+                    if Rover.near_sample:
+                        # stop
+                        Rover.throttle = 0
+                        Rover.brake = Rover.brake_set
+                    elif Rover.vel > 0.5:
+                        # coast
+                        Rover.throttle = 0
+                        Rover.brake = 0
+                    elif Rover.vel < 0.5:
+                        # speed up a bit to close in
+                        Rover.throttle = 1
+                        Rover.brake = 0
+                # If we are deviating, slow down with expectation to gradually fix the angle
+                # of approach
+                else:
+                    if Rover.vel > 0:
+                        # Set throttle value to throttle setting
+                        Rover.throttle = 0
+                        Rover.brake = Rover.brake_set
+            else:
+                Rover.mode = 'stop'
 
         # If we're already in "stop" mode then make different decisions
         elif Rover.mode == 'stop':
@@ -66,7 +114,8 @@ def decision_step(Rover):
         Rover.throttle = Rover.throttle_set
         Rover.steer = 0
         Rover.brake = 0
-        
+    
+
     # If in a state where want to pickup a rock send pickup command
     if Rover.near_sample and Rover.vel == 0 and not Rover.picking_up:
         Rover.send_pickup = True
