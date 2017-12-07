@@ -77,54 +77,127 @@ def perspect_transform(img, src, dst):
     
     return warped
 
+# This function performs transformation. We basically mark 4 points in the source picture and
+# tell the function where those pictures should be in the resulting image.
+def warp(image):
+    source = np.float32([[14, 140], [305, 140], [204, 98], [115, 98]])
+    dst_size = 5 
+    bottom_offset = 6
+    destination = np.float32([[image.shape[1]/2 - dst_size, image.shape[0] - bottom_offset],
+                      [image.shape[1]/2 + dst_size, image.shape[0] - bottom_offset],
+                      [image.shape[1]/2 + dst_size, image.shape[0] - 2*dst_size - bottom_offset], 
+                      [image.shape[1]/2 - dst_size, image.shape[0] - 2*dst_size - bottom_offset],
+                      ])
+
+
+    return perspect_transform(image, source, destination)
 
 # Apply the above functions in succession and update the Rover state accordingly
 def perception_step(Rover):
+    world_size = Rover.worldmap.shape[0]
+    scale = 10
+
     # Perform perception steps to update Rover()
     # TODO: 
     # NOTE: camera image is coming to you in Rover.img
     # 1) Define source and destination points for perspective transform
-    source = np.float32([[14, 140], [119, 97], [199, 96], [302, 144]])
-    destination = np.float32([[150, 140], [150, 135], [155, 135], [155, 140]])      
-
-    warped = perspect_transform(Rover.img, source, destination)
-    
     # 2) Apply perspective transform
+    warped = warp(Rover.img)
+
     # 3) Apply color threshold to identify navigable terrain/obstacles/rock samples
     # 4) Update Rover.vision_image (this will be displayed on left side of screen)
-    # Rover.vision_image = warped
-    # Rover.vision_image[:,:,0] = np.zeros_like(warped[:,:,0])
-    # Rover.vision_image[:,:,1] = np.ones_like(warped[:,:,0])
-    # Rover.vision_image[:,:,2] = np.zeros_like(warped[:,:,0])
-    
     img = np.zeros([160,320,3],dtype=np.uint8)
 
+    # I had trouble detecting samples directly in RGB so I turned into HSV where
+    # I had more success
     hsv = cv2.cvtColor(warped, cv2.COLOR_RGB2HSV)
+    # you can actually define two colors and search in range
     lower_y = np.array([25,41,150])
     upper_y = np.array([50,250,255])
     mask = cv2.inRange(hsv, lower_y, upper_y)
+    # pick the passable terrain
+    colorsel = color_thresh(warped, rgb_thresh=(160, 160, 160))
+    # invert basically. What is not passable is impassable
+    rocks = colorsel * -1 +1
 
-    
     img[:,:,0] = mask
-    img[:,:,1] = color_thresh(warped, (100, 100, 0)) * 255
+    img[:,:,1] = colorsel * 255
+    img[:,:,2] = (rocks) * 255
+    # Update the segmented view of the robot (lower left above camera)
     Rover.vision_image = img
-    
-        # Example: Rover.vision_image[:,:,0] = obstacle color-thresholded binary image
-        #          Rover.vision_image[:,:,1] = rock_sample color-thresholded binary image
-        #          Rover.vision_image[:,:,2] = navigable terrain color-thresholded binary image
 
     # 5) Convert map image pixel values to rover-centric coords
+    xpix, ypix = rover_coords(colorsel)
+    samples_xpix, samples_ypix = rover_coords(mask)
+    obstacles_xpix, obstacles_ypix = rover_coords(rocks)
+
     # 6) Convert rover-centric pixel values to world coordinates
+    rover_centric_samples_distances, rover_centric_samples_angles = to_polar_coords(samples_xpix, samples_ypix)
+    world_centric_x, world_centric_y = pix_to_world(samples_xpix, samples_ypix, Rover.pos[0], Rover.pos[1], Rover.yaw, world_size, scale)
+
+    # Here we check if we found some sample 
+    if len(rover_centric_samples_angles[rover_centric_samples_angles > 0]) > 0 :
+        Rover.seeing_sample = True
+        Rover.sample_angle = np.mean(rover_centric_samples_angles * 180/np.pi)        
+        # print("===========")
+        # print("FOUND STUFF")
+        # print("===========")
+        #  If we did we will switch to "approaching mode"
+        Rover.mode = 'closing_to_sample'
+
+        # mark on the map
+        rock_idx = np.argmin(rover_centric_samples_distances)
+        try:
+            rock_x = world_centric_x[rock_idx]
+            rock_y = world_centric_y[rock_idx]
+            Rover.worldmap[rock_y, rock_x, 1] = 255
+        except:
+            print "retry"       
+    else:
+        Rover.seeing_sample = False
+        Rover.sample_angle = None
+
+
+    rover_xpos = Rover.pos[0]
+    rover_ypos = Rover.pos[1]
+    rover_yaw = Rover.yaw
+
+    # Get navigable pixel positions in world coords
+    navigable_x_world, navigable_y_world = pix_to_world(xpix, ypix, rover_xpos, 
+                                           rover_ypos, rover_yaw, 
+                                           world_size, scale)
+
+
+    obstacles_x_world, obstacles_y_world = pix_to_world(obstacles_xpix, obstacles_ypix, rover_xpos, 
+                                           rover_ypos, rover_yaw, 
+                                           world_size, scale)
+
     # 7) Update Rover worldmap (to be displayed on right side of screen)
-        # Example: Rover.worldmap[obstacle_y_world, obstacle_x_world, 0] += 1
-        #          Rover.worldmap[rock_y_world, rock_x_world, 1] += 1
-        #          Rover.worldmap[navigable_y_world, navigable_x_world, 2] += 1
+        # Example: 
+    # Generate 200 x 200 pixel worldmap
+    worldmap = np.zeros((200, 200))
+
+    # Update the map only if we are in a leveled position so the transformation is valid
+    # This helps the accuracy of representation a bit
+    if (Rover.pitch >= 359.5 or Rover.pitch <= 0.5) and (Rover.roll >= 359.5 or Rover.roll <= 0.5):
+        # add value to obstacles. This is implementing sort of voting.
+        # If we conistently find something to be obstacle/passable eventually we will deem it that
+        worldmap[obstacles_y_world, obstacles_x_world] -= 1
+        worldmap[navigable_y_world, navigable_x_world] += 1
+
+
+    vfunc = np.vectorize(lambda t: 0 if (t == 0) else 1/t)
+    passable_terrain   = vfunc(worldmap) * (worldmap > 0).astype(float) * worldmap
+    impassable_terrain = vfunc(worldmap) * (worldmap <= 0).astype(float) * worldmap
+
+    # Update the picture itself 
+    Rover.worldmap[:, :, 0] += impassable_terrain
+    Rover.worldmap[:, :, 2] += passable_terrain
 
     # 8) Convert rover-centric pixel positions to polar coordinates
     # Update Rover pixel distances and angles
-        # Rover.nav_dists = rover_centric_pixel_distances
-        # Rover.nav_angles = rover_centric_angles
-    
-    
+    rover_centric_pixel_distances, rover_centric_angles = to_polar_coords(xpix, ypix)
+    Rover.nav_dists = rover_centric_pixel_distances
+    Rover.nav_angles = rover_centric_angles
     
     return Rover
