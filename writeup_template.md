@@ -76,7 +76,7 @@ When happening it is a bit choppy but works relatively well.
 
 ![alt text](images/closing_in.png =500x)
 
-3. I tried to implement a simple incentive for the robot to favor one side over the other when steering. The goal was to achieve a wall crawling behavior so the robot has a bigger chance to traverse more of the map. The algorithm is implemented by not using mean but
+3. I tried to implement a simple incentive for the robot to favor one side over the other when steering. The goal was to achieve a wall crawling behavior so the robot has a bigger chance to traverse more of the map. The algorithm is implemented by not using mean but a percentile (I tried to monkey with the values). While the idea itself is probably not bad for the approach given here I think that it should be way smarter. By crawling next to walls the robot is much more prone to getting stuck. Also in larger areas it is prone to just turn around in a circle. The idea was to see the samples which are closer to the walls but for robot to reliably traverse the world better strategy seems to steer clear of any obstacles as far as possibe and actively seek the unmapped/unclosed parts of the map not just wander around (even if with some trategy like keep at the left wall as much as possible).
 
 ![alt text](images/crawling_too_close.png =500x)
 
