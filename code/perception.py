@@ -152,7 +152,7 @@ def perception_step(Rover):
             rock_y = world_centric_y[rock_idx]
             Rover.worldmap[rock_y, rock_x, 1] = 255
         except:
-            print "retry"       
+            print("retry")
     else:
         Rover.seeing_sample = False
         Rover.sample_angle = None
